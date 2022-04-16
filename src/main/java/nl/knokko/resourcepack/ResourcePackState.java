@@ -4,10 +4,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.CommandSender;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.MalformedURLException;
 import java.net.URL;
@@ -29,6 +26,10 @@ public class ResourcePackState {
 
     public ResourcePackState(File folder) {
         this.folder = folder;
+
+        if (!folder.isDirectory() && !folder.mkdirs()) {
+            Bukkit.getLogger().severe("Can't create folder plugins/ResourcePack");
+        }
 
         List<File> candidateResourcePackFiles = new ArrayList<>(1);
         File[] existingFiles = folder.listFiles();
@@ -75,7 +76,7 @@ public class ResourcePackState {
         try {
             // TODO Do this on another thread?
             File resourcePackFile = this.getResourcePackFile();
-            this.propagate(Files.newInputStream(resourcePackFile.toPath()), new VoidOutputStream(), true);
+            this.propagate(Files.newInputStream(resourcePackFile.toPath()), new VoidOutputStream(), true, true);
         } catch (IOException ioTrouble) {
             Bukkit.getLogger().severe(
                     "Failed to read resource pack " + this.currentResourcePackId + ": " + ioTrouble.getMessage()
@@ -89,7 +90,7 @@ public class ResourcePackState {
         }
     }
 
-    private void propagate(InputStream source, OutputStream destination, boolean updateSha1) throws IOException, NoSuchAlgorithmException {
+    private void propagate(InputStream source, OutputStream destination, boolean updateSha1, boolean closeDestination) throws IOException, NoSuchAlgorithmException {
         DigestInputStream digestInput = null;
         if (updateSha1) {
             digestInput = new DigestInputStream(source, MessageDigest.getInstance("SHA-1"));
@@ -107,7 +108,9 @@ public class ResourcePackState {
         }
         source.close();
         destination.flush();
-        destination.close();
+        if (closeDestination) {
+            destination.close();
+        }
     }
 
     private void notifyPlayersAboutNewResourcePack() {
@@ -140,18 +143,26 @@ public class ResourcePackState {
             if (responseCode == 200) {
                 if (!hasResourcePackLocally) {
                     sender.sendMessage(ChatColor.BLUE + "Downloading resource pack from the resource pack server...");
-                    this.propagate(connection.getInputStream(), Files.newOutputStream(resourcePackFile.toPath()), true);
-                    sender.sendMessage(ChatColor.BLUE + "Finished download resource pack from the resource pack server");
-                    this.notifyPlayersAboutNewResourcePack();
+                    try {
+                        OutputStream fileOutput = Files.newOutputStream(resourcePackFile.toPath());
+                        this.propagate(connection.getInputStream(), fileOutput, true, true);
+                        sender.sendMessage(ChatColor.BLUE + "Finished download resource pack from the resource pack server");
+                        this.notifyPlayersAboutNewResourcePack();
+                        this.lastSyncTime = System.currentTimeMillis();
+                    } catch (IOException cantDownload) {
+                        sender.sendMessage(ChatColor.RED + "Failed to download resource pack from the resource pack server: " + cantDownload.getMessage());
+                    }
                 } else {
                     sender.sendMessage(ChatColor.GREEN + "Sync succeeded");
+                    this.lastSyncTime = System.currentTimeMillis();
                 }
-                this.lastSyncTime = System.currentTimeMillis();
             } else if (responseCode == 404) {
                 if (hasResourcePackLocally) {
-                    this.postResourcePack(sender);
-                    this.lastSyncTime = System.currentTimeMillis();
-                    this.notifyPlayersAboutNewResourcePack();
+                    try {
+                        this.postResourcePack(sender);
+                    } catch (IOException cantUpload) {
+                        sender.sendMessage(ChatColor.RED + "Failed to upload the resource pack to the resource pack server: " + cantUpload.getMessage());
+                    }
                 } else {
                     sender.sendMessage(ChatColor.RED + "The resource pack server no longer has this resource pack. You need to re-upload it.");
                     this.currentResourcePackId = null;
@@ -201,7 +212,7 @@ public class ResourcePackState {
 
                 int hour = lastSyncCalendar.get(Calendar.HOUR_OF_DAY);
                 int minute = lastSyncCalendar.get(Calendar.MINUTE);
-                sender.sendMessage("The last synchronization with the resource pack server was at " + hour + ":" + minute + " in timezone " + lastSyncCalendar.getTimeZone());
+                sender.sendMessage("The last synchronization with the resource pack server was at " + hour + ":" + minute + " in timezone " + lastSyncCalendar.getTimeZone().getDisplayName());
             } else {
                 sender.sendMessage(ChatColor.YELLOW + "This server hasn't synchronized with the resource pack server yet.");
             }
@@ -220,15 +231,33 @@ public class ResourcePackState {
         URL url = new URL(this.getResourcePackUrlPrefix() + "upload-resource-pack/" + this.currentResourcePackId);
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod("POST");
+        connection.setDoOutput(true);
         connection.connect();
 
         sender.sendMessage(ChatColor.BLUE + "Uploading resource pack to the resource pack server...");
-        this.propagate(Files.newInputStream(this.getResourcePackFile().toPath()), connection.getOutputStream(), false);
+
+        OutputStream uploadOutput = connection.getOutputStream();
+        long fileId = System.nanoTime() + System.currentTimeMillis();
+        PrintWriter uploadTextOutput = new PrintWriter(uploadOutput);
+        uploadTextOutput.print("-----------------------------" + fileId + "\r\n");
+        uploadTextOutput.print("Content-Disposition: form-data; name=\"resource-pack\"; filename=\"" + this.currentResourcePackId + ".zip\"\r\n");
+        uploadTextOutput.print("Content-Type: application/x-zip-compressed\r\n\r\n");
+        uploadTextOutput.flush();
+
+        this.propagate(Files.newInputStream(this.getResourcePackFile().toPath()), uploadOutput, false, false);
+
+        uploadTextOutput = new PrintWriter(uploadOutput);
+        uploadTextOutput.print("\r\n-----------------------------" + fileId + "--\r\n");
+        uploadTextOutput.flush();
+
         sender.sendMessage(ChatColor.BLUE + "Finished uploading resource pack to the resource pack server");
 
         int responseCode = connection.getResponseCode();
         if (responseCode != 200) {
             sender.sendMessage(ChatColor.RED + "Failed to upload resource pack: code is " + responseCode);
+        } else {
+            this.lastSyncTime = System.currentTimeMillis();
+            this.notifyPlayersAboutNewResourcePack();
         }
         connection.disconnect();
     }
