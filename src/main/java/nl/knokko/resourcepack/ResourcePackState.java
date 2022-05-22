@@ -12,9 +12,10 @@ import java.nio.file.Files;
 import java.security.DigestInputStream;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.ArrayList;
-import java.util.Calendar;
-import java.util.List;
+import java.util.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.concurrent.LinkedBlockingQueue;
 
 public class ResourcePackState {
 
@@ -23,6 +24,11 @@ public class ResourcePackState {
     private String currentResourcePackId;
     private byte[] binarySha1Hash;
     private long lastSyncTime = 0L;
+
+    private final Queue<Runnable> bukkitThreadQueue = new ConcurrentLinkedQueue<>();
+    private final BlockingQueue<Runnable> backgroundThreadQueue = new LinkedBlockingQueue<>();
+
+    private boolean isStopped;
 
     public ResourcePackState(File folder) {
         this.folder = folder;
@@ -66,17 +72,42 @@ public class ResourcePackState {
             this.updateSha1Hash();
             this.sync(Bukkit.getConsoleSender());
         }
+
+        new Thread(() -> {
+            while (!this.isStopped) {
+                try {
+                    backgroundThreadQueue.take().run();
+                } catch (InterruptedException e) {
+                    // This shouldn't happen
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+    }
+
+    public void stop() {
+        this.backgroundThreadQueue.add(() -> this.isStopped = true);
+    }
+
+    public void updateBukkitThreadTasks() {
+        while (true) {
+            Runnable nextTask = bukkitThreadQueue.poll();
+            if (nextTask == null) break;
+            nextTask.run();
+        }
     }
 
     private File getResourcePackFile() {
         return new File(this.folder + "/" + this.currentResourcePackId + ".zip");
     }
 
-    private void updateSha1Hash() {
+    private synchronized void updateSha1Hash() {
         try {
-            // TODO Do this on another thread?
             File resourcePackFile = this.getResourcePackFile();
-            this.propagate(Files.newInputStream(resourcePackFile.toPath()), new VoidOutputStream(), true, true);
+            this.propagate(
+                    Files.newInputStream(resourcePackFile.toPath()), new VoidOutputStream(),
+                    true, true, null, -1
+            );
         } catch (IOException ioTrouble) {
             Bukkit.getLogger().severe(
                     "Failed to read resource pack " + this.currentResourcePackId + ": " + ioTrouble.getMessage()
@@ -90,18 +121,34 @@ public class ResourcePackState {
         }
     }
 
-    private void propagate(InputStream source, OutputStream destination, boolean updateSha1, boolean closeDestination) throws IOException, NoSuchAlgorithmException {
+    private void propagate(
+            InputStream source, OutputStream destination,
+            boolean updateSha1, boolean closeDestination,
+            CommandSender progressListener, long totalLength
+    ) throws IOException, NoSuchAlgorithmException {
         DigestInputStream digestInput = null;
         if (updateSha1) {
             digestInput = new DigestInputStream(source, MessageDigest.getInstance("SHA-1"));
             source = digestInput;
         }
+
         byte[] buffer = new byte[100_000];
+        long totalNumReadBytes = 0;
         while (true) {
             int numReadBytes = source.read(buffer);
             if (numReadBytes == -1) break;
 
             destination.write(buffer, 0, numReadBytes);
+
+            long oldMillion = totalNumReadBytes / 1_000_000;
+            totalNumReadBytes += numReadBytes;
+            long newMillion = totalNumReadBytes / 1_000_000;
+            if (progressListener != null && oldMillion != newMillion) {
+                sendOnBukkitThread(
+                        progressListener,
+                        ChatColor.AQUA + "Progress: " + String.format("%.1f", 100.0 * totalNumReadBytes / totalLength) + "%"
+                );
+            }
         }
         if (updateSha1) {
             this.binarySha1Hash = digestInput.getMessageDigest().digest();
@@ -113,11 +160,15 @@ public class ResourcePackState {
         }
     }
 
+    private void sendOnBukkitThread(CommandSender sender, String message) {
+        bukkitThreadQueue.add(() -> sender.sendMessage(message));
+    }
+
     private void notifyPlayersAboutNewResourcePack() {
         Bukkit.broadcastMessage("A new server resource pack has been configured. You will get it once you reconnect to this server.");
     }
 
-    public void sync(CommandSender sender) {
+    public synchronized void sync(CommandSender sender) {
         if (this.currentResourcePackId == null) {
             sender.sendMessage(ChatColor.RED + "You need to use /rpack changeid <resource pack id> before running this command.");
             return;
@@ -128,60 +179,68 @@ public class ResourcePackState {
         File resourcePackFile = this.getResourcePackFile();
         boolean hasResourcePackLocally = resourcePackFile.exists();
 
-        // TODO Do this on another thread?
-        try {
-            URL url = new URL(this.getCurrentResourcePackUrl());
-            HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-            if (!hasResourcePackLocally) {
-                connection.setRequestMethod("GET");
-            } else {
-                connection.setRequestMethod("HEAD");
-            }
-            connection.connect();
-
-            int responseCode = connection.getResponseCode();
-            if (responseCode == 200) {
+        backgroundThreadQueue.add(() -> {
+            try {
+                URL url = new URL(this.getCurrentResourcePackUrl());
+                HttpURLConnection connection = (HttpURLConnection) url.openConnection();
                 if (!hasResourcePackLocally) {
-                    sender.sendMessage(ChatColor.BLUE + "Downloading resource pack from the resource pack server...");
-                    try {
-                        OutputStream fileOutput = Files.newOutputStream(resourcePackFile.toPath());
-                        this.propagate(connection.getInputStream(), fileOutput, true, true);
-                        sender.sendMessage(ChatColor.BLUE + "Finished download resource pack from the resource pack server");
-                        this.notifyPlayersAboutNewResourcePack();
-                        this.lastSyncTime = System.currentTimeMillis();
-                    } catch (IOException cantDownload) {
-                        sender.sendMessage(ChatColor.RED + "Failed to download resource pack from the resource pack server: " + cantDownload.getMessage());
-                    }
+                    connection.setRequestMethod("GET");
                 } else {
-                    sender.sendMessage(ChatColor.GREEN + "Sync succeeded");
-                    this.lastSyncTime = System.currentTimeMillis();
+                    connection.setRequestMethod("HEAD");
                 }
-            } else if (responseCode == 404) {
-                if (hasResourcePackLocally) {
-                    try {
-                        this.postResourcePack(sender);
-                    } catch (IOException cantUpload) {
-                        sender.sendMessage(ChatColor.RED + "Failed to upload the resource pack to the resource pack server: " + cantUpload.getMessage());
-                    }
-                } else {
-                    sender.sendMessage(ChatColor.RED + "The resource pack server no longer has this resource pack. You need to re-upload it.");
-                    this.currentResourcePackId = null;
-                }
-            } else {
-                sender.sendMessage(ChatColor.RED + "Got unexpected response code " + responseCode + " from the resource pack server.");
-            }
+                connection.connect();
 
-            connection.disconnect();
-        } catch (MalformedURLException badURL) {
-            sender.sendMessage(ChatColor.RED + badURL.getMessage());
-        } catch (IOException cantReachServer) {
-            sender.sendMessage(ChatColor.RED + "Can't connect to resource pack server: " + cantReachServer.getMessage());
-        } catch (NoSuchAlgorithmException noSha1Support) {
-            sender.sendMessage(ChatColor.DARK_RED + "Your server doesn't support SHA-1, so this plug-in won't work.");
-        }
+                int responseCode = connection.getResponseCode();
+                if (responseCode == 200) {
+                    if (!hasResourcePackLocally) {
+                        sendOnBukkitThread(sender, ChatColor.BLUE + "Downloading resource pack from the resource pack server...");
+                        try {
+                            OutputStream fileOutput = Files.newOutputStream(resourcePackFile.toPath());
+                            this.propagate(
+                                    connection.getInputStream(), fileOutput,
+                                    true, true, sender, connection.getContentLength()
+                            );
+
+                            bukkitThreadQueue.add(() -> {
+                                sender.sendMessage(ChatColor.BLUE + "Finished download resource pack from the resource pack server");
+                                this.notifyPlayersAboutNewResourcePack();
+                            });
+
+                            this.lastSyncTime = System.currentTimeMillis();
+                        } catch (IOException cantDownload) {
+                            sendOnBukkitThread(sender, ChatColor.RED + "Failed to download resource pack from the resource pack server: " + cantDownload.getMessage());
+                        }
+                    } else {
+                        sendOnBukkitThread(sender, ChatColor.GREEN + "Sync succeeded");
+                        this.lastSyncTime = System.currentTimeMillis();
+                    }
+                } else if (responseCode == 404) {
+                    if (hasResourcePackLocally) {
+                        try {
+                            this.postResourcePack(sender);
+                        } catch (IOException cantUpload) {
+                            sendOnBukkitThread(sender, "Failed to upload the resource pack to the resource pack server: " + cantUpload.getMessage());
+                        }
+                    } else {
+                        sendOnBukkitThread(sender, "The resource pack server no longer has this resource pack. You need to re-upload it.");
+                        this.currentResourcePackId = null;
+                    }
+                } else {
+                    sendOnBukkitThread(sender, "Got unexpected response code " + responseCode + " from the resource pack server.");
+                }
+
+                connection.disconnect();
+            } catch (MalformedURLException badURL) {
+                sendOnBukkitThread(sender, ChatColor.RED + badURL.getMessage());
+            } catch (IOException cantReachServer) {
+                sendOnBukkitThread(sender, ChatColor.RED + "Can't connect to resource pack server: " + cantReachServer.getMessage());
+            } catch (NoSuchAlgorithmException noSha1Support) {
+                sendOnBukkitThread(sender, ChatColor.DARK_RED + "Your server doesn't support SHA-1, so this plug-in won't work.");
+            }
+        });
     }
 
-    public void changeId(CommandSender sender, String newResourcePackId) {
+    public synchronized void changeId(CommandSender sender, String newResourcePackId) {
         if (this.currentResourcePackId != null) {
             File currentFile = this.getResourcePackFile();
             if (currentFile.exists()) {
@@ -196,7 +255,7 @@ public class ResourcePackState {
         this.sync(sender);
     }
 
-    public void printStatus(CommandSender sender) {
+    public synchronized void printStatus(CommandSender sender) {
         if (this.currentResourcePackId != null) {
             sender.sendMessage("The current resource pack id is " + this.currentResourcePackId);
             File resourcePackFile = this.getResourcePackFile();
@@ -224,7 +283,7 @@ public class ResourcePackState {
 
     private String getResourcePackUrlPrefix() {
         // TODO Allow users to configure the URL?
-        return "http://localhost/";
+        return "http://49.12.188.159/";
     }
 
     private void postResourcePack(CommandSender sender) throws IOException, NoSuchAlgorithmException {
@@ -244,7 +303,10 @@ public class ResourcePackState {
         uploadTextOutput.print("Content-Type: application/x-zip-compressed\r\n\r\n");
         uploadTextOutput.flush();
 
-        this.propagate(Files.newInputStream(this.getResourcePackFile().toPath()), uploadOutput, false, false);
+        this.propagate(
+                Files.newInputStream(this.getResourcePackFile().toPath()), uploadOutput,
+                false, false, sender, this.getResourcePackFile().length()
+        );
 
         uploadTextOutput = new PrintWriter(uploadOutput);
         uploadTextOutput.print("\r\n-----------------------------" + fileId + "--\r\n");

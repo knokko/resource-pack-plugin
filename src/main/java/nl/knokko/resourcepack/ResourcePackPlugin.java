@@ -23,16 +23,26 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
         Bukkit.getScheduler().scheduleSyncRepeatingTask(
                 this, () -> this.state.sync(Bukkit.getConsoleSender()), syncPeriod, syncPeriod
         );
+
+        // Some actions of the resource pack state must happen on the Bukkit thread
+        Bukkit.getScheduler().scheduleSyncRepeatingTask(this, this.state::updateBukkitThreadTasks, 20, 20);
+    }
+
+    @Override
+    public void onDisable() {
+        this.state.stop();
     }
 
     @EventHandler
     public void sendResourcePackOnPlayerJoin(PlayerJoinEvent event) {
-        String resourcePackUrl = this.state.getCurrentResourcePackUrl();
-        byte[] sha1 = this.state.getBinarySha1Hash();
-        if (resourcePackUrl != null && sha1 != null) {
-            event.getPlayer().setResourcePack(resourcePackUrl, sha1);
-        } else {
-            event.getPlayer().sendMessage(ChatColor.YELLOW + "The server resource pack is not yet ready.");
+        synchronized (this.state) {
+            String resourcePackUrl = this.state.getCurrentResourcePackUrl();
+            byte[] sha1 = this.state.getBinarySha1Hash();
+            if (resourcePackUrl != null && sha1 != null) {
+                event.getPlayer().setResourcePack(resourcePackUrl, sha1);
+            } else {
+                event.getPlayer().sendMessage(ChatColor.YELLOW + "The server resource pack is not yet ready.");
+            }
         }
     }
 
