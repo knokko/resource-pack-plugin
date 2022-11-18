@@ -4,9 +4,11 @@ import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.event.player.PlayerResourcePackStatusEvent;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public class ResourcePackPlugin extends JavaPlugin implements Listener {
@@ -15,6 +17,7 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 
     @Override
     public void onEnable() {
+        this.saveDefaultConfig();
         Bukkit.getPluginManager().registerEvents(this, this);
         this.state = new ResourcePackState(this.getDataFolder());
 
@@ -46,6 +49,33 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
         }
     }
 
+    @EventHandler
+    public void forceResourcePack(PlayerResourcePackStatusEvent event) {
+        FileConfiguration config = this.getConfig();
+
+        if (event.getStatus() == PlayerResourcePackStatusEvent.Status.DECLINED) {
+            if (config.getBoolean("kick-upon-reject")) {
+                event.getPlayer().kickPlayer(config.getString("force-reject-message"));
+            } else {
+                String message = config.getString("optional-reject-message");
+                if (message != null && !message.isEmpty()) {
+                    event.getPlayer().sendMessage(message);
+                }
+            }
+        }
+
+        if (event.getStatus() == PlayerResourcePackStatusEvent.Status.FAILED_DOWNLOAD) {
+            if (config.getBoolean("kick-upon-failed-download")) {
+                event.getPlayer().kickPlayer(config.getString("force-failed-message"));
+            } else {
+                String message = config.getString("optional-failed-message");
+                if (message != null && !message.isEmpty()) {
+                    event.getPlayer().sendMessage(message);
+                }
+            }
+        }
+    }
+
     @Override
     public boolean onCommand(CommandSender sender, Command command, String label, String[] args) {
         if (args.length > 0) {
@@ -68,6 +98,13 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
             } else if (args[0].equals("sync")) {
                 if (sender.hasPermission("resourcepack.sync")) {
                     this.state.sync(sender);
+                } else {
+                    sender.sendMessage(ChatColor.DARK_RED + "You don't have access to this command");
+                }
+            } else if (args[0].equals("reload-config")) {
+                if (sender.hasPermission("resourcepack.reload-config")) {
+                    this.reloadConfig();
+                    sender.sendMessage(ChatColor.GREEN + "Config should have been reloaded");
                 } else {
                     sender.sendMessage(ChatColor.DARK_RED + "You don't have access to this command");
                 }

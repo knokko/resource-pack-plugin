@@ -1,8 +1,8 @@
 name: "ResourcePack"
 main: "nl.knokko.resourcepack.ResourcePackPlugin"
-version: "0.3"
+version: "0.4"
 commands:
   resourcepack:
     description: "Change the server resource pack and/or view its status"
-    usage: "/rpack changeid <id> OR /rpack status OR /rpack sync"
+    usage: "/rpack changeid <id> OR /rpack status OR /rpack sync OR /rpack reload-config"
     aliases: ["rpack"]
