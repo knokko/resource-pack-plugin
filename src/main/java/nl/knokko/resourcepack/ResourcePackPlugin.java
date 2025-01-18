@@ -49,15 +49,10 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 		//noinspection SynchronizeOnNonFinalField
 		synchronized (this.state) {
 			String worldName = event.getPlayer().getWorld().getName();
-			System.out.println("Player joined in world " + worldName);
 			String resourcePackUrl = this.state.getCurrentResourcePackUrl(worldName);
 			byte[] sha1 = this.state.getBinarySha1Hash(worldName);
 			if (resourcePackUrl != null && sha1 != null) {
-				System.out.println("Sending pack " + resourcePackUrl);
 				event.getPlayer().setResourcePack(resourcePackUrl, sha1);
-			} else {
-				// TODO Remove after testing
-				event.getPlayer().sendMessage(ChatColor.YELLOW + "The server resource pack is not yet ready.");
 			}
 		}
 	}
@@ -68,7 +63,6 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 		synchronized (this.state) {
 			String oldWorldName = event.getFrom().getName();
 			String newWorldName = event.getPlayer().getWorld().getName();
-			System.out.println("Player switched from " + oldWorldName + " to " + newWorldName);
 
 			String oldUrl = this.state.getCurrentResourcePackUrl(oldWorldName);
 			byte[] oldHash = this.state.getBinarySha1Hash(oldWorldName);
@@ -77,9 +71,6 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 			if (!Objects.equals(oldUrl, newUrl) || !Arrays.equals(oldHash, newHash)) {
 				if (newUrl != null && newHash != null) {
 					event.getPlayer().setResourcePack(newUrl, newHash);
-				} else {
-					// TODO Remove after testing
-					event.getPlayer().sendMessage(ChatColor.YELLOW + "The server resource pack is not yet ready.");
 				}
 			}
 		}
@@ -145,13 +136,13 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 				} else {
 					sender.sendMessage(ChatColor.DARK_RED + "You don't have access to this command");
 				}
-			} else if (args[0].equals("list")) { // TODO Document the new commands
+			} else if (args[0].equals("list")) {
 				if (sender.hasPermission("resourcepack.status")) {
 					List<String> worldNames = this.state.getWorldNames();
 					if (worldNames.contains(null)) sender.sendMessage("You have configured a default resourcepack");
 					else sender.sendMessage("You haven't configured a default resourcepack");
 
-					if (worldNames.isEmpty()) sender.sendMessage(
+					if (worldNames.stream().noneMatch(Objects::nonNull)) sender.sendMessage(
 							"You haven't configured any world-specific resourcepacks"
 					); else sender.sendMessage(
 							"You have configured world-specific resourcepacks for the following worlds:"

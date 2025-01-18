@@ -39,7 +39,6 @@ public class AllPacksState {
 			Bukkit.getLogger().severe("Failed to create worlds pack folder: " + worldsFolder);
 		}
 		for (File worldFolder : worldsFolder.listFiles()) {
-			System.out.println("Found world folder " + worldFolder);
 			this.worldStates.add(new SinglePackState(
 					worldFolder, worldFolder.getName(), urlPrefix, bukkitThreadQueue, backgroundThreadQueue
 			));
@@ -78,10 +77,8 @@ public class AllPacksState {
 	private SinglePackState getState(String worldName, boolean strict) {
 		if (worldName == null) return defaultState;
 		for (SinglePackState state : worldStates) {
-			System.out.println("state.worldName is " + state.worldName + " and world name is " + worldName);
 			if (state.worldName.equals(worldName)) return state;
 		}
-		System.out.println("Couldn't find state with world name " + worldName);
 		return strict ? null : defaultState;
 	}
 

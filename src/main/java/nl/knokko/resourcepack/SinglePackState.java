@@ -343,7 +343,6 @@ public class SinglePackState {
 			Bukkit.broadcastMessage(announcement);
 		} else {
 			World world = Bukkit.getWorld(worldName);
-			System.out.println("Notify players: world name is " + worldName + " and world is " + world);
 			if (world == null) return;
 			for (Player player : world.getPlayers()) player.sendMessage(announcement);
 		}
@@ -351,7 +350,7 @@ public class SinglePackState {
 
 	public void clear(CommandSender sender) {
 		File resourcepackFile = getResourcePackFile();
-		if (resourcepackFile.exists() && !resourcepackFile.exists()) {
+		if (resourcepackFile.exists() && !resourcepackFile.delete()) {
 			sender.sendMessage(ChatColor.YELLOW + "Failed to delete " + resourcepackFile);
 		}
 
