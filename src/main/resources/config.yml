@@ -1,3 +1,7 @@
+# The URL of the resource pack hosting service, which must end with a /
+# You should probably not change this.
+resource-pack-host-url: http://49.12.188.159/
+
 # Whether players should be kicked when they reject the server resource pack
 kick-upon-reject: false
 
