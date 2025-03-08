@@ -82,7 +82,11 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 		FileConfiguration config = this.getConfig();
 
 		if (event.getStatus() == PlayerResourcePackStatusEvent.Status.DECLINED) {
-			if (config.getBoolean("kick-upon-reject")) {
+			String rejectCommand = config.getString("reject-command");
+			if (rejectCommand != null && !rejectCommand.isBlank()) {
+				rejectCommand = rejectCommand.replaceAll("<player>", event.getPlayer().getName());
+				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), rejectCommand);
+			} else if (config.getBoolean("kick-upon-reject")) {
 				event.getPlayer().kickPlayer(config.getString("force-reject-message"));
 			} else {
 				String message = config.getString("optional-reject-message");
@@ -93,7 +97,11 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 		}
 
 		if (event.getStatus() == PlayerResourcePackStatusEvent.Status.FAILED_DOWNLOAD) {
-			if (config.getBoolean("kick-upon-failed-download")) {
+			String failedCommand = config.getString("failed-command");
+			if (failedCommand != null && !failedCommand.isBlank()) {
+				failedCommand = failedCommand.replaceAll("<player>", event.getPlayer().getName());
+				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), failedCommand);
+			} else if (config.getBoolean("kick-upon-failed-download")) {
 				event.getPlayer().kickPlayer(config.getString("force-failed-message"));
 			} else {
 				String message = config.getString("optional-failed-message");
