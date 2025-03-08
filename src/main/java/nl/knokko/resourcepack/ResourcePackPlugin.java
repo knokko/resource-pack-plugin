@@ -83,7 +83,7 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 
 		if (event.getStatus() == PlayerResourcePackStatusEvent.Status.DECLINED) {
 			String rejectCommand = config.getString("reject-command");
-			if (rejectCommand != null && !rejectCommand.isBlank()) {
+			if (rejectCommand != null && !rejectCommand.isEmpty()) {
 				rejectCommand = rejectCommand.replaceAll("<player>", event.getPlayer().getName());
 				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), rejectCommand);
 			} else if (config.getBoolean("kick-upon-reject")) {
@@ -98,7 +98,7 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 
 		if (event.getStatus() == PlayerResourcePackStatusEvent.Status.FAILED_DOWNLOAD) {
 			String failedCommand = config.getString("failed-command");
-			if (failedCommand != null && !failedCommand.isBlank()) {
+			if (failedCommand != null && !failedCommand.isEmpty()) {
 				failedCommand = failedCommand.replaceAll("<player>", event.getPlayer().getName());
 				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), failedCommand);
 			} else if (config.getBoolean("kick-upon-failed-download")) {
