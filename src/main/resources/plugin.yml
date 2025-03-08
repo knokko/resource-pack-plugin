@@ -1,6 +1,6 @@
 name: "ResourcePack"
 main: "nl.knokko.resourcepack.ResourcePackPlugin"
-version: "1.0"
+version: "1.1"
 commands:
   resourcepack:
     description: "Change the server resource pack and/or view its status"
