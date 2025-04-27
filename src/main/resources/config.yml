@@ -2,6 +2,9 @@
 # You should probably not change this.
 resource-pack-host-url: http://49.12.188.159/
 
+# Uncomment this to execute a command whenever a player accepts the resourcepack.
+#acceptance-command: give <player> diamond
+
 # Whether players should be kicked when they reject the server resource pack
 kick-upon-reject: false
 

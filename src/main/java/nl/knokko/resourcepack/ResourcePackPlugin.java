@@ -110,6 +110,14 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 				}
 			}
 		}
+
+		if (event.getStatus() == PlayerResourcePackStatusEvent.Status.SUCCESSFULLY_LOADED) {
+			String acceptanceCommand = config.getString("acceptance-command");
+			if (acceptanceCommand != null && !acceptanceCommand.isEmpty()) {
+				acceptanceCommand = acceptanceCommand.replaceAll("<player>", event.getPlayer().getName());
+				Bukkit.dispatchCommand(Bukkit.getConsoleSender(), acceptanceCommand);
+			}
+		}
 	}
 
 	@Override
