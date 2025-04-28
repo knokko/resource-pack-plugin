@@ -78,7 +78,7 @@ public class ResourcePackPlugin extends JavaPlugin implements Listener {
 
 	@EventHandler
 	public void forceResourcePack(PlayerResourcePackStatusEvent event) {
-		if (GeyserSupport.isBedrock(event.getPlayer())) return;
+		if (GeyserSupport.isBedrock(event.getPlayer()) || FloodgateSupport.isBedrock(event.getPlayer())) return;
 		FileConfiguration config = this.getConfig();
 
 		if (event.getStatus() == PlayerResourcePackStatusEvent.Status.DECLINED) {
